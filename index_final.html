@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html>
+<meta charset="utf-8">
+<style>
+
+.states {
+  fill: #ccc;
+}
+
+.state-borders {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5px;
+  stroke-linejoin:round;
+  stroke-linecap:round;
+}
+
+
+.bubble {
+  fill: steelblue;
+  stroke: #fff;
+}
+
+.legend-box {
+  fill:none;
+  stroke:#888;
+  font-size:5px;
+}
+
+.legent-title {
+  font-weight:bold;
+}
+
+.d3-tip {
+  line-height: 1;
+  font-weight:bold;
+  padding: 12px;
+  background: rgba(0,0,0,0.8);
+  color:#fff;
+  border-radius:2px;
+  font-size:70%;
+}
+
+.line {
+	display:none;
+}
+
+
+
+
+</style>
+<body>
+<script src="//d3js.org/d3.v3.min.js"></script>
+<script src="//d3js.org/topojson.v1.min.js"></script>
+<script src="http://labratrevenge.com/d3-tip/javascripts/d3.tip.v0.6.3.js"></script>
+<script>
+
+function draw(geo_data) {
+  var width = 1000,
+      height = 500;
+
+  var projection = d3.geo.albers()
+                      .scale(1080)
+                      .translate([width / 2, height / 2]);
+
+  var path = d3.geo.path()
+                .projection(projection);
+//add title
+  d3.select('body').append('h2')
+    .attr('text-anchor', 'middle')
+    .text('US domestic flights delay in 20 largest airports in 2008');
+
+  d3.select('body').append('p')
+    .text('Circles denotes the 20 largest airports in US. Point your mouse over the circles to see the airlines depart from this airports to others, as well as the average arrival delay of each routes.');
+
+  var svg = d3.select("body").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  d3.select('body').append('p')
+    .text('Note: The twenty largest airports are picked based on the total number of domestic flights depart from this airport. Each circle on the map denotes the airport. Point your mouse over to check out the details of this airport. The size of the circles denotes the number of departure flights from this airport. The color of the circles denotes average departure delay. The lines connecting each airport denotes the airlines. The color of lines denotes average arrival delay for this airlines.')
+    .style('font-size', '15px');
+
+  d3.select('body').append('p')
+    .text('Among the 20 largest airports in US, ORD, ATL, DEN are the largest. For the departure delay, ORD and SFO are the most serious. On average, flights departure were delayed for 20 to 26 minutess. Then are EWR, LAS and LAX, the average departure delays are 14 to 20 minutes. For ORD, the arrival time of all of the airlines basically delayed by 14 to 42 minutes. Also, flights went to ORD on average delayed by 28 to 42 minutes. This is also the truth for SFO, but the average delayed time is shorter for SFO.')
+
+    // append the us map and state borders
+  svg.append("path")
+      .datum(topojson.feature(geo_data, geo_data.objects.land))
+      .attr("class", "states")
+      .attr("d", path);
+
+  svg.append("path")
+      .datum(topojson.mesh(geo_data, geo_data.objects.states, function(a, b) { return a !== b; }))
+      .attr("class", "state-borders")
+      .attr("d", path);
+
+  
+d3.csv("airports.csv", function(airport_data) { 
+ //input airport id, return the position of the airport in the map
+  
+ 
+  
+function plot(data) {
+
+  var find_coord = function find_coord(airport_id) {
+            for (i=0;i<airport_data.length;i++) {
+              if (airport_data[i]['id'] == airport_id) {
+                var long = airport_data[i]['long'];
+                var lat = airport_data[i]['lat'];
+                var city = airport_data[i]['city'];
+              }
+            }
+            var position = projection([+long,+lat])
+            return {
+              'long' : position[0],
+              'lat' : position[1],
+              'city' : city
+            };
+          };
+
+//***********************clean the data, get only 20 largest airport data******************
+      var nested = d3.nest()
+                   .key(function(d) {return d['Origin'];})
+                   .rollup(function(d) {return d.length;})
+                   .entries(data);
+
+      var largest_20_airports = nested.sort(function(a,b) {
+              return (b.values - a.values);}).slice(0,20);
+        // a list of the 20 largest airport
+      var largest_20_airports_id = [];
+      largest_20_airports.forEach(function(d){
+          largest_20_airports_id.push(d.key);
+        })
+
+        // get only data of these 20 largest airport
+      var newdata = [];
+      data.forEach(function(d) {
+            if ((largest_20_airports_id.indexOf(d.Origin)>-1)
+              &&(largest_20_airports_id.indexOf(d.Dest)>-1)) 
+            {newdata.push(d);}        
+        })
+
+
+//********************************cleannig end*****************************************//
+//*******************************draw circle start***************************************//
+
+        function origin_airport(leaves) {
+                  var total_depart = leaves.length;
+                  var meanDepDelay = d3.mean(leaves, function(d) { return d.DepDelay;});
+                  var origin_pos = find_coord(leaves[0].Origin);
+                  var center_x = origin_pos.long;
+                  var center_y = origin_pos.lat;
+                  return {
+                    'total_flights' : total_depart,
+                    'meanDepDelay': meanDepDelay,
+                    'x' : center_x,
+                    'y' : center_y
+                  };
+              }
+
+        var group_by_Origin =  d3.nest()
+                   .key(function(d) {return d['Origin'];})
+                   .rollup(origin_airport)
+                   .entries(newdata);
+
+        function get_total_flights(id) {
+            for (i=0; i<group_by_Origin.length;i++) {
+              if (group_by_Origin[i].key == id) {
+                var total = group_by_Origin[i].values.total_flights;
+              }
+            }
+            return total;
+        }
+
+        // scale for bubble radius
+        var flight_max = d3.max(group_by_Origin, function(d) {
+          return d.values['total_flights'];
+        });
+
+        var flight_min = d3.min(group_by_Origin, function(d) {
+          return d.values['total_flights'];
+        });
+
+        var radius = d3.scale.sqrt()
+                        .domain([0,flight_max])
+                        .range([0,15]); 
+
+        // scale for circle color, denotes avg depDelay from this circle
+        var DepDelay_max = d3.max(group_by_Origin, function(d) {
+          return d.values.meanDepDelay;
+        })
+
+        var DepDelay_min = d3.min(group_by_Origin, function(d) {
+          return d.values.meanDepDelay;});
+
+        var circle_color_scale = d3.scale.quantize()
+                                    .domain([DepDelay_min, DepDelay_max])
+                                    .range(['#90B5DE','#5B728C','#1F2730']);
+        // append circle
+
+        var circle = svg.append('g')
+           .attr('class', 'bubble')
+           .selectAll('circle')
+           .data(group_by_Origin.sort(function(a,b) {
+              return b.values['total_flights'] - a.values['total_flights'];
+           }))
+           .enter()
+           .append('circle')
+           .attr('cx', function(d) { return d.values['x']; })
+           .attr('cy', function(d) { return d.values['y']; })
+           .attr('r', function(d) { 
+                return radius(d.values['total_flights']);
+              })
+           .style('fill', function(d) {return circle_color_scale(d.values.meanDepDelay);});
+
+
+        // create a tooltip when mouse move to the bubble
+        
+        //
+        var tip = d3.tip()
+                    .attr('class', 'd3-tip')
+                    .offset([-100,0])
+                    .html(function(d) {
+                       return "<strong>Airport:</strong> <span style='color:red'>"+d.key+"</span><br><br><strong>City:</strong><span style='color:red'>"+find_coord(d.key).city + "</span><br><br><strong>Flights:</strong><span style='color:red'>" +get_total_flights(d.key) + "</span><br><br>";
+                    });
+        svg.call(tip);
+
+
+
+        // add line between origin and destination
+//***********************************************************
+        function group_byDest(Origin_Dest) {
+            // function countFlights(Origin_Dest) {
+              var meanArrDelay = d3.mean(Origin_Dest, function(d){return d.ArrDelay;});
+              var meanDepDelay = d3.mean(Origin_Dest, function(d){return d.DepDelay;});
+              var total = Origin_Dest.length;
+              var origin = Origin_Dest[0].Origin;
+              var dest = Origin_Dest[0].Dest
+              var origin_pos = find_coord(origin);
+              var dest_pos = find_coord(dest);
+              var x1 = origin_pos.long;
+              var y1 = origin_pos.lat;
+              var x2 = dest_pos.long;
+              var y2 = dest_pos.lat;
+              return {
+                'total_flights_this_line' : total,
+                'meanArrDelay': meanArrDelay,
+                'meanDepDelay': meanDepDelay,
+                'origin': origin,
+                'dest': dest,
+                'coords' : [{'x':x1, 'y':y1}, {'x':x2,'y':y2}]
+              };
+            //}
+
+           
+        }
+        //group flight data by origin, then group_byDest further group data destination
+
+        var group_byOrigin = d3.nest()
+                               .key(function(d) { return d['Origin'];})
+                               .key(function(d) { return d['Dest'];})
+                               .rollup(group_byDest)
+                               .entries(newdata);
+
+        
+        var arc = svg.append('g').attr('class', 'arc');
+
+        var lineFunction = d3.svg.line()
+                            .x(function(d) {return d.x;})
+                            .y(function(d) {return d.y;})
+                            .interpolate("linear");
+
+        // max mean arrival delay
+        var max_bag = [];
+        var min_bag = [];
+        group_byOrigin.forEach(function(d) {
+          var local_max = d3.max(d.values, function(d) {return d.values.meanArrDelay;});
+          var local_min = d3.min(d.values, function(d) {return d.values.meanArrDelay;});
+          max_bag.push(local_max);
+          min_bag.push(local_min);
+        })
+
+        var ArrDelay_max = d3.max(max_bag);
+        var ArrDelay_min = d3.min(min_bag);
+// scale for path,delay
+        var path_scale = d3.scale.quantize()
+                              .domain([ArrDelay_min,ArrDelay_max])
+                              .range(['#fee391', '#fe9929', '#cc4c02', '#8c2d04']);
+
+//*****************************************************
+        group_byOrigin.forEach(function(d) {
+
+          var flight_path_max = d3.max(d.values, function(d) {
+            return d.values.total_flights_this_line;
+          });
+
+          var flight_path_min = d3.min(d.values, function(d) {
+            return d.values.total_flights_this_line;
+          })
+        
+
+        	var data = d.values;
+          var key = d.key;
+          data.forEach(function(d) {
+            var lineData = d.values.coords;
+            arc.append('path')
+               .attr('d', lineFunction(lineData))
+               .attr('id', key)
+               .attr('class', key)
+               .attr('stroke', path_scale(Number(d.values.meanArrDelay)))
+               .attr('visibility', 'hidden')
+               .attr('pointer-events','none')
+               .attr('fill', 'none')
+               .attr('stroke-width','2px');
+          
+     // add text (#of flights) at the end of path
+          var text_position = d.values.coords[1];
+
+            arc.append("text")
+               .attr('class', key)
+               .style('text-anchor', 'middle')
+                .attr('x', text_position.x-10)
+                .attr('y', text_position.y-20)
+                .attr('font-size', '10px')
+                .attr('font-weight','bold')
+                .style('visibility','hidden')
+                .style('stroke', '#356282')
+            		.text( d.values.total_flights_this_line);
+        	})
+          })
+//***********************************************************
+        // create legend
+        var margin = {'left':800,'top':300}, //legend position
+            boxmargin = 4,
+            lineheight = 15,
+            keyheight = 3,
+            keywidth = 35,
+            formatPercent = d3.format('.0%');
+        var title = ['Avg. arrival delay'],
+            titleheight = title.length * lineheight + boxmargin;
+
+        var ranges = path_scale.range().length;  //ranges=4
+              //return quantize thresholds 
+        var qrange = function(max, min, num) {
+          var a = [];
+          for (var i=0; i<num; i++) {
+            a.push([min+i*(max-min)/num, min+(i+1)*(max-min)/num]);
+          }
+          return a;
+        }
+
+        var legend = svg.append('g')
+                        .attr('transform', 'translate ('+margin.left+","+margin.top+")")
+                        .attr('class', 'legend_line');
+
+        legend.selectAll('text')
+              .data(title)
+              .enter().append('text')
+              .attr('class', 'legend-title')
+              .style('font-size', '10px')
+              .style('font-weight', 'bold')
+              .attr('y', function(d,i){return (i+1)*lineheight-2;})
+              .text(function(d) {return d;})
+              //legend box
+        var lb = legend.append('rect')
+                        .attr('transform', 'translate (0,'+titleheight+')')
+                        .attr('class', 'legend-box')
+                        .attr('width', 130)
+                        .attr('height', ranges*lineheight+2*boxmargin+lineheight-keyheight);
+              //legend items
+        var li = legend.append('g')
+                      .attr('transform', 'translate (8,'+(titleheight+boxmargin)+')')
+                      .attr('class', 'legend-items');
+
+        li.selectAll('rect')
+            .data(path_scale.range().map(function(color){
+              var d=path_scale.invertExtent(color);  //return the ranges of this color[,]
+              return d;
+            }))
+            .enter().append('rect')
+            .attr('y', function(d,i){return i*lineheight+lineheight-keyheight;})
+            .attr('width', keywidth)
+            .attr('height', keyheight) 
+            .style('fill', function(d){return path_scale((d[0]+d[1])/2);});
+
+        var threholds = qrange(path_scale.domain()[1],path_scale.domain()[0], ranges); //qrange return the threholds [,,,]
+        li.selectAll('text')
+          .data(threholds)  
+          .enter().append('text')
+          .attr('x',48)
+          .attr('y',function(d,i){return (i+1)*lineheight-2;})
+          .text(function(d){
+            return d3.round(d[0])+' to '+d3.round(d[1])+' mins';
+          })
+          .style('font-size', '10px')
+          .style('font-weight', 'bold');
+
+          //legend 2 for circle color
+        var margin_circle_legend = {'left':10,'top':20};
+        var lineheight = 20;
+        var title = ['Avg. departure delay'],
+            titleheight = title.length * lineheight + boxmargin;
+        var ranges = circle_color_scale.range().length; 
+        var legend_circle = svg.append('g')
+                        .attr('transform', 'translate ('+margin_circle_legend.left+","+margin_circle_legend.top+")")
+                        .attr('class', 'legend_circle');
+
+        legend_circle.selectAll('text')
+              .data(title)
+              .enter().append('text')
+              .attr('class', 'legend-title')
+              .style('font-size', '10px')
+              .style('font-weight', 'bold')
+              .attr('y', function(d,i){return (i+1)*lineheight-2;})
+              .text(function(d) {return d;})
+
+         var lb_circle = legend_circle.append('rect')
+                        .attr('transform', 'translate (0,'+titleheight+')')
+                        .attr('class', 'legend-box')
+                        .attr('width', 100)
+                        .attr('height', ranges*lineheight+lineheight-keyheight);
+        
+              //legend items
+        var li_circle = legend_circle.append('g')
+                      .attr('transform', 'translate (0,'+(titleheight+boxmargin)+')')
+                      .attr('class', 'legend-items');
+
+        li_circle.selectAll('circle')
+            .data(circle_color_scale.range().map(function(color){
+              var d=circle_color_scale.invertExtent(color);  //return the ranges of this color[,]
+              return d;
+            }))
+            .enter().append('circle')
+            .attr('cx', 15)
+            .attr('cy', function(d,i){return i*lineheight+lineheight-keyheight;})
+            .attr('r', 8)
+            .style('fill', function(d){return circle_color_scale((d[0]+d[1])/2);});
+
+       
+        var threholds_circle = qrange(circle_color_scale.domain()[1],circle_color_scale.domain()[0], ranges); //qrange return the threholds [,,,]
+
+        li_circle.selectAll('text')
+          .data(threholds_circle)  
+          .enter().append('text')
+          .attr('x',30)
+          .attr('y',function(d,i){return (i+1)*lineheight-2;})
+          .text(function(d){
+            return d3.round(d[0])+' to '+d3.round(d[1])+' mins';
+          })
+          .style('font-size', '10px')
+          .style('font-weight', 'bold');
+
+        // legend for circle area
+        var margin_circle_area = {'left':10,'top':150};
+        var lineheight = 30;
+        var title = ['Outgoing Volumn'],
+            titleheight = title.length * lineheight + boxmargin;
+        var ranges = radius.range(); 
+        var legend_circle_area = svg.append('g')
+                        .attr('transform', 'translate ('+margin_circle_area.left+","+margin_circle_area.top+")")
+                        .attr('class', 'legend_circle_area');
+
+        legend_circle_area.selectAll('text')
+              .data(title)
+              .enter().append('text')
+              .attr('class', 'legend-title')
+              .style('font-size', '10px')
+              .style('font-weight', 'bold')
+              .attr('y', function(d,i){return (i+1)*lineheight;})
+              .text(function(d) {return d;})
+
+        var lb_circle_area = legend_circle_area.append('rect')
+                        .attr('transform', 'translate (0,'+titleheight+')')
+                        .attr('class', 'legend-box')
+                        .attr('width', 90)
+                        .attr('height', 2*lineheight+lineheight-keyheight);
+        
+              //legend items
+        var li_circle_area = legend_circle_area.append('g')
+                      .attr('transform', 'translate (0,'+(titleheight+boxmargin)+')')
+                      .attr('class', 'legend-items');
+
+        li_circle_area.selectAll('circle')
+            .data([flight_min, flight_max])
+            .enter().append('circle')
+            .attr('cx', 25)
+            .attr('cy', function(d,i){return i*lineheight+lineheight-keyheight;})
+            .style('r', function(d){return radius(d);})
+            .style('fill', '#90B5DE');
+
+       
+        li_circle_area.selectAll('text')
+          .data([flight_min, flight_max])  
+          .enter().append('text')
+          .attr('x',50)
+          .attr('y',function(d,i){return (i+1)*lineheight-2;})
+          .text(function(d){
+            return d;
+          })
+          .style('font-size', '10px')
+          .style('font-weight', 'bold');
+
+
+
+//********************************************************
+
+        //process the interactivity of circle
+           circle.on('mouseover', function(d) {
+                  tip.show(d);
+                  svg.selectAll("g.arc").selectAll("."+d.key)
+                  	  .style("display","inline")
+                      .style("visibility", "visible");
+           })
+           		 .on('mouseout', function(d) {
+                  tip.hide(d);
+                  svg.selectAll("g.arc").selectAll("."+d.key)
+                     .style("visibility", "hidden");
+           });
+
+    }
+
+
+
+    d3.csv("flights.csv", plot);
+
+ });  
+
+}
+
+
+
+
+////start hear
+//for airport.csv
+
+
+d3.json("us.json", draw);
+
+
+</script>
+</body>
+</html>
